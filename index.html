@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space Race</title>
+    <script src="https://unpkg.com/@farcade/game-sdk@latest/dist/index.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: #000;
+        font-family: "Arial", sans-serif;
+        color: #fff; /* Default text color for UI */
+      }
+
+      .emulator-frame {
+        position: relative;
+        width: 100%;
+        max-width: 400px;
+        background: #1a1a1a;
+        border-radius: 10px;
+        padding: 1px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .emulator-header {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 6px;
+        color: white;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .game-container {
+        position: relative;
+        width: 100%;
+        /* Aspect ratio 500:800 */
+        padding-top: 160%;
+        background: #000;
+        overflow: hidden;
+        border-radius: 10px; /* Match emulator frame rounding */
+      }
+
+      #gameCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        border-radius: 10px; /* Match emulator frame rounding */
+      }
+
+      #ui {
+        position: absolute;
+        top: 10px; /* Adjusted for better visibility */
+        left: 10px;
+        /* width: 100%; */
+        /* text-align: center; */
+        color: #00fab3; /* Theme color */
+        font-family: "Arial", sans-serif;
+        font-size: 20px; /* Adjusted */
+        text-shadow: 0 0 8px rgba(0, 250, 179, 0.7);
+        z-index: 10;
+        pointer-events: none; /* Allow clicks to pass through to canvas if needed */
+      }
+
+      .screen {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.85); /* Slightly more opaque */
+        color: #00fab3; /* Theme color */
+        text-align: center;
+        padding: 25px; /* Increased padding */
+        width: 85%; /* Increased width */
+        border-radius: 10px;
+        z-index: 20; /* Ensure it's above game elements */
+        border: 2px solid #00fab3;
+        text-shadow: 0 0 10px #00fab3;
+        box-shadow: 0 0 20px rgba(0, 250, 179, 0.5);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .screen h1 {
+        font-size: 28px; /* Adjusted */
+        margin-bottom: 15px;
+        text-transform: uppercase;
+      }
+
+      .screen p {
+        font-size: 16px; /* Adjusted */
+        margin-bottom: 10px;
+        line-height: 1.4;
+      }
+
+      .screen button {
+        background-color: #00fab3;
+        color: black;
+        border: none;
+        padding: 12px 25px; /* Adjusted padding */
+        font-size: 18px; /* Adjusted font size */
+        font-weight: bold;
+        border-radius: 5px;
+        cursor: pointer;
+        text-transform: uppercase;
+        margin-top: 20px; /* Added margin */
+        transition:
+          background-color 0.3s,
+          box-shadow 0.3s;
+        box-shadow: 0 0 10px rgba(0, 250, 179, 0.5);
+      }
+
+      .screen button:hover {
+        background-color: #00d8a1;
+        box-shadow: 0 0 15px #00fab3;
+      }
+
+      /* Removed .touch-controls as game handles touch differently */
+
+      @media (max-width: 768px) {
+        /* Mobile specific styles if needed, though the game is in an emulator frame */
+      }
+    </style>
+  </head>
+  <body>
+    <div class="emulator-frame">
+      <div class="game-container" id="gameArea">
+        {/* Added id for touch listeners */}
+        <div id="ui">Score: <span id="scoreDisplay">0</span></div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="startScreen" class="screen">
+          <h1>SPACE RACE</h1>
+          <p>Avoid the Red Blocks!</p>
+          <p>Use Arrow Keys or Touch to Move</p>
+          <button id="startButton">Start Game</button>
+        </div>
+        <div id="endScreen" class="screen" style="display: none">
+          <h1>GAME OVER</h1>
+          <p>Score: <span id="finalScoreDisplay">0</span></p>
+          <p>High Score: <span id="highScoreDisplay">0</span></p>
+          <button id="replayButton">Play Again</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // --- DOM Elements ---
+      const canvas = document.getElementById("gameCanvas");
+      const gameArea = document.getElementById("gameArea");
+      const startScreen = document.getElementById("startScreen");
+      const endScreen = document.getElementById("endScreen");
+      const scoreDisplay = document.getElementById("scoreDisplay");
+      const finalScoreDisplay = document.getElementById("finalScoreDisplay");
+      const highScoreDisplay = document.getElementById("highScoreDisplay");
+      const startButton = document.getElementById("startButton");
+      const replayButton = document.getElementById("replayButton");
+
+      // --- THREE.JS Setup ---
+      let scene,
+        camera,
+        renderer,
+        player,
+        obstaclesGroup,
+        tunnelGroup,
+        speedLinesGroup,
+        starsGroup,
+        powerupsGroup; // Added powerupsGroup
+      let backgroundMusic; // Added for background music
+      const clock = new THREE.Clock();
+
+      // --- Constants ---
+      const GAME_SPEED_START = 30;
+      const GAME_SPEED_INCREMENT = 0.8;
+      const PLAYER_MOVEMENT_SPEED = 35;
+      const HORIZONTAL_BOUNDS = 4.25;
+      const VERTICAL_BOUNDS = 4; // Adjusted to keep player on screen
+      const HORIZONTAL_CENTER_OFFSET = 0;
+      const OBSTACLE_SPAWN_Z = -150;
+      const OBSTACLE_DESPAWN_Z = 20;
+      const OBSTACLE_SPACING_MIN = 20;
+      const OBSTACLE_RADIUS = 2;
+      const PLAYER_RADIUS = 1.2; // Made smaller for a more forgiving hitbox
+
+      // Power-up Constants
+      const POWERUP_SPAWN_CHANCE = 0.002;
+      const POWERUP_RADIUS = 1.5;
+      const SHIELD_DURATION = 30000; // 30 seconds
+      const SPEED_BOOST_DURATION = 3000; // 3 seconds
+      const SPEED_BOOST_MULTIPLIER = 3; // Speed multiplier
+      const SPEED_BOOST_GRACE_PERIOD = 1; // 1 second
+      const NORMAL_SPACESHIP_URL =
+        "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/space-LUdQhnZZARFNuwpSrQ9mTAFF6PB7nd.png?tfWi";
+      const SHIELDED_SPACESHIP_URL =
+        "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/shield-spaceship-X2HY6lmugt75ibcyrXE8fAEYGhZMha.png?ggGn";
+      const SHIELD_IMG_URL =
+        "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/shield%20powerup-vMjriXQ0BfNNi3os5Si2UijAAyYwtq.png?OWDV";
+      const SPEED_IMG_URL =
+        "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/speed%20boost-scA4tjLOqZTUBIjr72Y8VEbIPezTi9.png?Q2oZ";
+
+      const TUNNEL_RING_RADIUS = HORIZONTAL_BOUNDS + 3;
+      const TUNNEL_RING_THICKNESS = 0.5;
+      const TUNNEL_RING_COUNT = 40;
+      const TUNNEL_RING_SPACING = 15;
+
+      const SPEED_LINE_COUNT = 300; // Reduced for performance
+      const SPEED_LINE_LENGTH = 8;
+      const STARS_COUNT = 1000; // Reduced for performance
+
+      // --- Game State ---
+      const gameState = {
+        score: 0,
+        highScore: 0,
+        status: "ready", // 'ready', 'playing', 'paused', 'ended'
+        obstacles: [],
+        powerups: [], // To store active powerups
+        keys: { left: false, right: false, up: false, down: false },
+        currentSpeed: GAME_SPEED_START,
+        lastObstacleZ: OBSTACLE_SPAWN_Z,
+        isMuted: false,
+        touchTarget: null, // For mobile "follow touch" controls
+        shieldActive: false,
+        playerTextures: { normal: null, shielded: null },
+        shieldTimeoutId: null,
+        speedBoostActive: false,
+        speedBoostEndTime: 0,
+        gracePeriodEndTime: 0,
+        isInvincible: false,
+      };
+
+      // --- Initialization ---
+      function init() {
+        // Scene
+        scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x000000, 50, 200);
+
+        // Camera
+        // Aspect ratio based on canvas fixed size
+        const aspect = 500 / 800;
+        camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000);
+        camera.position.set(0, 5, 12);
+        camera.lookAt(0, 0, -10);
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+        renderer.setSize(500, 800); // Fixed size
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Clamp DPR
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(0, 10, 5);
+        scene.add(directionalLight);
+
+        // Game Objects Groups
+        obstaclesGroup = new THREE.Group();
+        scene.add(obstaclesGroup);
+        tunnelGroup = new THREE.Group();
+        scene.add(tunnelGroup);
+        speedLinesGroup = new THREE.Group();
+        scene.add(speedLinesGroup);
+        starsGroup = new THREE.Group();
+        scene.add(starsGroup);
+        powerupsGroup = new THREE.Group();
+        scene.add(powerupsGroup);
+
+        createPlayer();
+        createTunnel();
+        createSpeedLines();
+        createStars();
+
+        // Initialize Background Music
+        backgroundMusic = new Audio(
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/Acid%20%281%29-Wzc9NO5y49W7TBaeQ43i3DizIYMZRR.mp3?54m9",
+        );
+        backgroundMusic.loop = true;
+        backgroundMusic.volume = 0.4; // Example volume, can be adjusted
+
+        // Load high score
+        gameState.highScore = parseInt(localStorage.getItem("spaceRaceHighScore") || "0", 10);
+
+        // Event Listeners
+        startButton.addEventListener("click", startGame);
+        replayButton.addEventListener("click", startGame);
+
+        setupInputHandlers();
+        setupFarcadeSDK();
+
+        window.addEventListener("visibilitychange", handleVisibilityChange, false);
+
+        updateUI();
+        animate(); // Start render loop but game logic conditional on state
+      }
+
+      // --- Game Logic ---
+      function resetGame() {
+        gameState.score = 0;
+        gameState.status = "playing";
+        gameState.currentSpeed = GAME_SPEED_START;
+        gameState.lastObstacleZ = OBSTACLE_SPAWN_Z;
+
+        // Deactivate any active powerups
+        deactivateShield();
+        deactivateSpeedBoost();
+
+        // Clear existing obstacles
+        gameState.obstacles.forEach((obstacleData) => {
+          if (obstacleData.mesh) obstaclesGroup.remove(obstacleData.mesh);
+        });
+        gameState.obstacles = [];
+
+        // Clear existing powerups
+        gameState.powerups.forEach((powerupData) => {
+          if (powerupData.mesh) powerupsGroup.remove(powerupData.mesh);
+        });
+        gameState.powerups = [];
+
+        if (player) {
+          player.position.set(0, 0, 0);
+          player.rotation.set(0, 0, 0); // Reset tilt
+        }
+        camera.position.set(0, 5, 12);
+        camera.lookAt(0, 0, -10);
+        camera.fov = 70;
+        camera.updateProjectionMatrix();
+
+        // Reset tunnel and speed lines if they have complex reset logic
+        // For now, their movement is continuous based on speed.
+
+        updateScoreDisplay();
+        updateUI();
+      }
+
+      function startGame() {
+        if (gameState.status === "playing") return;
+        resetGame(); // This sets status to 'playing'
+        window.FarcadeSDK.singlePlayer.actions.ready();
+        // Haptic feedback for game start
+        if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+
+        // Start background music if not muted
+        if (backgroundMusic && !gameState.isMuted) {
+          backgroundMusic.currentTime = 0; // Restart music from beginning
+          backgroundMusic.play().catch((e) => console.warn("Audio play failed in startGame:", e));
+        }
+
+        // If game starts while tab is hidden, immediately pause it.
+        if (document.hidden) {
+          gameState.status = "paused";
+          if (backgroundMusic) {
+            backgroundMusic.pause();
+          }
+        }
+      }
+
+      function endGame() {
+        if (gameState.status === "ended") return; // Prevent multiple calls
+        gameState.status = "ended";
+
+        // Update High Score
+        if (gameState.score > gameState.highScore) {
+          gameState.highScore = Math.floor(gameState.score);
+          localStorage.setItem("spaceRaceHighScore", gameState.highScore);
+        }
+
+        // Update UI
+        finalScoreDisplay.textContent = Math.floor(gameState.score);
+        highScoreDisplay.textContent = gameState.highScore;
+        updateUI();
+
+        window.FarcadeSDK.singlePlayer.actions.gameOver({ score: Math.floor(gameState.score) });
+        // Haptic feedback for game over
+        if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+
+        // Pause background music
+        if (backgroundMusic) {
+          backgroundMusic.pause();
+        }
+      }
+
+      function createObstacleMesh(position) {
+        const isSafe = gameState.speedBoostActive;
+        const geometry = new THREE.BoxGeometry(OBSTACLE_RADIUS * 2, OBSTACLE_RADIUS * 2, OBSTACLE_RADIUS * 2);
+        const material = new THREE.MeshStandardMaterial({
+          color: isSafe ? 0xff6666 : 0xff0000, // Lighter red if speed boost active
+          emissive: isSafe ? 0x440000 : 0x660000, // Darker emissive for safe blocks
+          roughness: 0.6,
+          metalness: 0.3,
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.copy(position);
+        return mesh;
+      }
+
+      function createPowerupMesh(position, type) {
+        const loader = new THREE.TextureLoader();
+        const url = type === "shield" ? SHIELD_IMG_URL : SPEED_IMG_URL;
+
+        const material = new THREE.SpriteMaterial({
+          map: loader.load(url),
+          fog: false,
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(POWERUP_RADIUS * 2, POWERUP_RADIUS * 2, 1);
+        sprite.position.copy(position);
+        sprite.userData.type = type; // Store type for collision logic
+        return sprite;
+      }
+
+      function activateShield() {
+        if (gameState.shieldActive) {
+          // If shield is already active, just reset its timer
+          clearTimeout(gameState.shieldTimeoutId);
+        } else {
+          gameState.shieldActive = true;
+          if (player && gameState.playerTextures.shielded) {
+            player.material.map = gameState.playerTextures.shielded;
+            player.material.needsUpdate = true;
+          }
+        }
+        gameState.shieldTimeoutId = setTimeout(deactivateShield, SHIELD_DURATION);
+      }
+
+      function deactivateShield() {
+        clearTimeout(gameState.shieldTimeoutId);
+        gameState.shieldTimeoutId = null;
+        if (player && gameState.playerTextures.normal) {
+          player.material.map = gameState.playerTextures.normal;
+          player.material.needsUpdate = true;
+        }
+        gameState.shieldActive = false;
+      }
+
+      function activateSpeedBoost() {
+        if (gameState.speedBoostActive) {
+          // Extend current boost
+          gameState.speedBoostEndTime += SPEED_BOOST_DURATION / 1000;
+        } else {
+          gameState.speedBoostActive = true;
+          gameState.speedBoostEndTime = clock.elapsedTime + SPEED_BOOST_DURATION / 1000;
+        }
+        // Change existing obstacle colors
+        obstaclesGroup.children.forEach((obstacle) => {
+          obstacle.material.color.set(0xff6666);
+          obstacle.material.emissive.set(0x440000);
+        });
+      }
+
+      function deactivateSpeedBoost() {
+        gameState.speedBoostActive = false;
+        gameState.gracePeriodEndTime = clock.elapsedTime + SPEED_BOOST_GRACE_PERIOD;
+
+        // Revert obstacle colors
+        obstaclesGroup.children.forEach((obstacle) => {
+          obstacle.material.color.set(0xff0000);
+          obstacle.material.emissive.set(0x660000);
+        });
+      }
+
+      function updateTimersAndState() {
+        // Handle speed boost ending
+        if (gameState.speedBoostActive && clock.elapsedTime > gameState.speedBoostEndTime) {
+          deactivateSpeedBoost();
+        }
+        // Update master invincibility flag
+        gameState.isInvincible =
+          gameState.shieldActive || gameState.speedBoostActive || clock.elapsedTime < gameState.gracePeriodEndTime;
+      }
+
+      function activatePowerup(type) {
+        if (type === "shield") {
+          activateShield();
+        } else if (type === "speed") {
+          activateSpeedBoost();
+        }
+      }
+
+      // --- Game Elements ---
+      function createPlayer() {
+        const manager = new THREE.LoadingManager();
+        const loader = new THREE.TextureLoader(manager);
+
+        // Load both textures
+        loader.load(
+          NORMAL_SPACESHIP_URL,
+          (texture) => {
+            texture.magFilter = THREE.LinearFilter;
+            texture.minFilter = THREE.LinearFilter;
+            gameState.playerTextures.normal = texture;
+          },
+          undefined,
+          (err) => console.error("An error happened loading the normal spaceship texture:", err),
+        );
+        loader.load(
+          SHIELDED_SPACESHIP_URL,
+          (texture) => {
+            texture.magFilter = THREE.LinearFilter;
+            texture.minFilter = THREE.LinearFilter;
+            gameState.playerTextures.shielded = texture;
+          },
+          undefined,
+          (err) => console.error("An error happened loading the shielded spaceship texture:", err),
+        );
+
+        manager.onLoad = () => {
+          // This runs when all textures are loaded
+          const material = new THREE.SpriteMaterial({
+            map: gameState.playerTextures.normal, // Start with normal texture
+            fog: false,
+            color: 0xdddddd,
+          });
+          player = new THREE.Sprite(material);
+
+          const texture = gameState.playerTextures.normal;
+          const aspectRatio = texture.image ? texture.image.width / texture.image.height : 16 / 9;
+          const spriteHeight = PLAYER_RADIUS * 2;
+          const spriteWidth = spriteHeight * aspectRatio;
+          player.scale.set(spriteWidth, spriteHeight, 1);
+
+          player.position.set(0, 0, 0);
+          scene.add(player);
+        };
+
+        manager.onError = (url) => {
+          console.error("There was an error loading " + url);
+          // Fallback to cone if texture loading fails
+          if (!player) {
+            // Check if player hasn't been created at all
+            console.log("Falling back to default ConeGeometry for player.");
+            const geometry = new THREE.ConeGeometry(PLAYER_RADIUS, PLAYER_RADIUS * 2, 8);
+            const fallbackMaterial = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x008888 });
+            player = new THREE.Mesh(geometry, fallbackMaterial);
+            player.rotation.x = Math.PI / 2; // Point cone forward
+            scene.add(player);
+          }
+        };
+      }
+
+      function updatePlayer(delta) {
+        if (gameState.status !== "playing" || !player) return;
+
+        const oldPos = player.position.clone(); // For tilt calculation
+
+        // Keyboard has direct movement for responsiveness
+        if (gameState.keys.left || gameState.keys.right || gameState.keys.up || gameState.keys.down) {
+          gameState.touchTarget = null; // Keyboard overrides touch
+
+          let moveX = 0;
+          let moveY = 0;
+          if (gameState.keys.left) moveX -= PLAYER_MOVEMENT_SPEED * delta;
+          if (gameState.keys.right) moveX += PLAYER_MOVEMENT_SPEED * delta;
+          if (gameState.keys.up) moveY += PLAYER_MOVEMENT_SPEED * delta;
+          if (gameState.keys.down) moveY -= PLAYER_MOVEMENT_SPEED * delta;
+
+          player.position.x += moveX;
+          player.position.y += moveY;
+        }
+        // Touch logic is now reworked for consistency
+        else if (gameState.touchTarget) {
+          const xOffset = -1.5; // Drastic horizontal offset to the left
+          const yOffset = 3.5; // Drastic vertical offset to be clearly above the finger
+
+          // Define movement bounds
+          const minX = HORIZONTAL_CENTER_OFFSET - HORIZONTAL_BOUNDS;
+          const maxX = HORIZONTAL_CENTER_OFFSET + HORIZONTAL_BOUNDS;
+          const minY = -VERTICAL_BOUNDS;
+          const maxY = VERTICAL_BOUNDS;
+
+          // Clamp the raw touch target to a smaller area. This ensures the
+          // full offset can be applied without being cut off by the main clamp.
+          const targetX = THREE.MathUtils.clamp(gameState.touchTarget.x, minX - xOffset, maxX - xOffset);
+          const targetY = THREE.MathUtils.clamp(gameState.touchTarget.y, minY - yOffset, maxY - yOffset);
+
+          // Apply the offset to the clamped target position
+          player.position.x = targetX + xOffset;
+          player.position.y = targetY + yOffset;
+        }
+
+        // Final clamp for safety, ensuring player never leaves the defined bounds
+        const minX = HORIZONTAL_CENTER_OFFSET - HORIZONTAL_BOUNDS;
+        const maxX = HORIZONTAL_CENTER_OFFSET + HORIZONTAL_BOUNDS;
+        const minY = -VERTICAL_BOUNDS;
+        const maxY = VERTICAL_BOUNDS;
+        player.position.x = THREE.MathUtils.clamp(player.position.x, minX, maxX);
+        player.position.y = THREE.MathUtils.clamp(player.position.y, minY, maxY);
+
+        // Tilt effect based on horizontal movement
+        const actualMoveX = player.position.x - oldPos.x;
+        const targetTilt = -actualMoveX * 15; // Scaled for a good feel
+        player.rotation.z = THREE.MathUtils.lerp(player.rotation.z, targetTilt, 0.1);
+
+        // Update shield position if it exists
+        if (gameState.shieldMesh) {
+          gameState.shieldMesh.position.copy(player.position);
+        }
+
+        // Camera Follow - X is locked to 0 to prevent parallax issues with touch controls
+        const idealOffset = new THREE.Vector3(0, 5 + player.position.y * 0.5, 12);
+        camera.position.lerp(idealOffset, 0.05);
+
+        // Look ahead, with no horizontal deviation
+        const lookAtPosition = new THREE.Vector3(0, player.position.y * 0.2, -20);
+
+        // Directly look at the target point to ensure no horizontal deviation.
+        camera.lookAt(lookAtPosition);
+
+        // Dynamic FOV
+        const speedForFov = gameState.currentSpeed * (gameState.speedBoostActive ? SPEED_BOOST_MULTIPLIER : 1);
+        const targetFov = 70 + (speedForFov - GAME_SPEED_START) * 0.3;
+        camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 0.1);
+        camera.updateProjectionMatrix();
+      }
+
+      function createTunnel() {
+        const ringGeometry = new THREE.RingGeometry(
+          TUNNEL_RING_RADIUS - TUNNEL_RING_THICKNESS / 2,
+          TUNNEL_RING_RADIUS + TUNNEL_RING_THICKNESS / 2,
+          32, // Segments
+        );
+        const ringMaterial = new THREE.MeshStandardMaterial({
+          color: 0x00fab3,
+          emissive: 0x00bfaa,
+          emissiveIntensity: 0.3,
+          roughness: 0.7,
+          metalness: 0.2,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.4,
+          fog: false,
+        });
+
+        for (let i = 0; i < TUNNEL_RING_COUNT; i++) {
+          const ring = new THREE.Mesh(ringGeometry, ringMaterial.clone()); // Clone material if it has unique properties per ring later
+          ring.position.z = -i * TUNNEL_RING_SPACING;
+          tunnelGroup.add(ring);
+        }
+      }
+
+      function updateTunnel(delta, speed) {
+        if (gameState.status !== "playing" && !speed) {
+          // Slower scroll for menus if not playing
+          speed = 20;
+        }
+        const farthestZ = -(TUNNEL_RING_COUNT * TUNNEL_RING_SPACING);
+        tunnelGroup.children.forEach((ring) => {
+          ring.position.z += speed * delta;
+          if (ring.position.z > OBSTACLE_DESPAWN_Z) {
+            const overshoot = ring.position.z - OBSTACLE_DESPAWN_Z;
+            ring.position.z = farthestZ - TUNNEL_RING_SPACING + overshoot;
+          }
+        });
+      }
+
+      function createSpeedLines() {
+        const material = new THREE.LineBasicMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.5, fog: false });
+        const points = [];
+        for (let i = 0; i < SPEED_LINE_COUNT; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const radius = HORIZONTAL_BOUNDS + Math.random() * (TUNNEL_RING_RADIUS - HORIZONTAL_BOUNDS - 1);
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          const zStart = OBSTACLE_SPAWN_Z * (1 + Math.random());
+          const zEnd = zStart - SPEED_LINE_LENGTH;
+
+          const line = {
+            startX: x,
+            startY: y,
+            startZ: zStart,
+            endX: x,
+            endY: y,
+            endZ: zEnd,
+            mesh: null,
+          };
+
+          const linePoints = [];
+          linePoints.push(new THREE.Vector3(line.startX, line.startY, line.startZ));
+          linePoints.push(new THREE.Vector3(line.endX, line.endY, line.endZ));
+          const geometry = new THREE.BufferGeometry().setFromPoints(linePoints);
+          line.mesh = new THREE.Line(geometry, material);
+          speedLinesGroup.add(line.mesh);
+          // Store initial positions for reset logic in updateSpeedLines
+          line.mesh.userData.initialPosition = { x, y, zStart, zEnd };
+        }
+      }
+
+      function updateSpeedLines(delta, speed) {
+        if (gameState.status !== "playing" && !speed) {
+          speed = 20;
+        }
+        speedLinesGroup.children.forEach((lineMesh) => {
+          const positions = lineMesh.geometry.attributes.position;
+          positions.array[2] += speed * delta; // z of start point
+          positions.array[5] += speed * delta; // z of end point
+
+          if (positions.array[2] > OBSTACLE_DESPAWN_Z) {
+            // Reset line
+            const { x, y, zStart, zEnd } = lineMesh.userData.initialPosition;
+            const newZStart = OBSTACLE_SPAWN_Z * (1 + Math.random() * 0.5) - 20;
+            const newZEnd = newZStart - SPEED_LINE_LENGTH * (1 + Math.random());
+
+            positions.array[0] = x;
+            positions.array[1] = y;
+            positions.array[2] = newZStart;
+            positions.array[3] = x;
+            positions.array[4] = y;
+            positions.array[5] = newZEnd;
+          }
+          positions.needsUpdate = true;
+        });
+      }
+
+      function createStars() {
+        const starVertices = [];
+        for (let i = 0; i < STARS_COUNT; i++) {
+          const x = THREE.MathUtils.randFloatSpread(1000); // Spread them wide
+          const y = THREE.MathUtils.randFloatSpread(1000);
+          const z = THREE.MathUtils.randFloat(-500, -1500); // Far back
+          starVertices.push(x, y, z);
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(starVertices, 3));
+        const material = new THREE.PointsMaterial({
+          color: 0xffffff,
+          size: 1.0, // Adjust size
+          sizeAttenuation: true,
+          transparent: true,
+          opacity: 0.8,
+          fog: false, // Stars should not be affected by fog much if they are far
+        });
+        const points = new THREE.Points(geometry, material);
+        starsGroup.add(points);
+      }
+
+      function updateStars(delta, speed) {
+        if (gameState.status !== "playing" && !speed) {
+          speed = 20;
+        }
+        // Move stars slowly for parallax
+        starsGroup.position.z += speed * delta * 0.02;
+        if (starsGroup.position.z > 150) {
+          starsGroup.position.z = -50; // Reset group position
+        }
+      }
+
+      function spawnPowerups() {
+        if (gameState.status !== "playing" || gameState.speedBoostActive || powerupsGroup.children.length > 0) {
+          return;
+        }
+
+        if (Math.random() < POWERUP_SPAWN_CHANCE) {
+          // Rarer shield
+          const type = Math.random() < 0.3 ? "shield" : "speed";
+
+          const position = new THREE.Vector3(
+            (Math.random() - 0.5) * HORIZONTAL_BOUNDS * 1.8,
+            (Math.random() - 0.5) * VERTICAL_BOUNDS * 1.8,
+            OBSTACLE_SPAWN_Z,
+          );
+
+          const mesh = createPowerupMesh(position, type);
+          powerupsGroup.add(mesh);
+          gameState.powerups.push({
+            id: Math.random(),
+            mesh: mesh,
+            position: position,
+            type: type,
+          });
+        }
+      }
+
+      function updatePowerups(delta, speed) {
+        if (gameState.status !== "playing") return;
+
+        for (let i = gameState.powerups.length - 1; i >= 0; i--) {
+          const powerup = gameState.powerups[i];
+          // Move powerup
+          powerup.position.z += speed * delta;
+          powerup.mesh.position.z = powerup.position.z;
+
+          // Despawn if missed
+          if (powerup.position.z > OBSTACLE_DESPAWN_Z) {
+            powerupsGroup.remove(powerup.mesh);
+            gameState.powerups.splice(i, 1);
+          }
+        }
+      }
+
+      function updateAndSpawnObstacles(delta, speed) {
+        for (let i = gameState.obstacles.length - 1; i >= 0; i--) {
+          const obstacleData = gameState.obstacles[i];
+          obstacleData.position.z += speed * delta;
+          if (obstacleData.mesh) {
+            obstacleData.mesh.position.z = obstacleData.position.z;
+          }
+          if (obstacleData.position.z > OBSTACLE_DESPAWN_Z) {
+            if (obstacleData.mesh) {
+              obstaclesGroup.remove(obstacleData.mesh);
+            }
+            gameState.obstacles.splice(i, 1);
+          }
+        }
+
+        // --- Obstacle Spawning ---
+        if (!gameState.speedBoostActive) {
+          if (gameState.obstacles.length === 0 || gameState.lastObstacleZ < OBSTACLE_SPAWN_Z + OBSTACLE_SPACING_MIN) {
+            const newZ =
+              Math.min(gameState.lastObstacleZ, OBSTACLE_SPAWN_Z) -
+              (OBSTACLE_SPACING_MIN + Math.random() * OBSTACLE_SPACING_MIN * 1.5);
+            const newObstacleData = {
+              id: Math.random(),
+              position: new THREE.Vector3(
+                (Math.random() - 0.5) * HORIZONTAL_BOUNDS * 1.8, // Slightly narrower spawn for fairness
+                (Math.random() - 0.5) * VERTICAL_BOUNDS * 1.8, // Spawn with vertical variation
+                newZ,
+              ),
+              mesh: null,
+            };
+            newObstacleData.mesh = createObstacleMesh(newObstacleData.position);
+            obstaclesGroup.add(newObstacleData.mesh);
+            gameState.obstacles.push(newObstacleData);
+            gameState.lastObstacleZ = newZ;
+          }
+        }
+      }
+
+      function checkCollisions() {
+        if (!player || gameState.status !== "playing") return;
+
+        const playerPos = player.position;
+
+        // --- Obstacle Collision ---
+        // Using a for loop to allow early exit and direct modification
+        for (let i = gameState.obstacles.length - 1; i >= 0; i--) {
+          const obstacleData = gameState.obstacles[i];
+          if (
+            obstacleData.position.z < PLAYER_RADIUS + OBSTACLE_RADIUS &&
+            obstacleData.position.z > -(PLAYER_RADIUS + OBSTACLE_RADIUS)
+          ) {
+            const distance = playerPos.distanceTo(obstacleData.position);
+            if (distance < PLAYER_RADIUS + OBSTACLE_RADIUS) {
+              if (gameState.shieldActive) {
+                if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+                deactivateShield();
+                if (obstacleData.mesh) obstaclesGroup.remove(obstacleData.mesh);
+                gameState.obstacles.splice(i, 1);
+              } else if (gameState.isInvincible) {
+                // From speed boost
+                if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+                if (obstacleData.mesh) obstaclesGroup.remove(obstacleData.mesh);
+                gameState.obstacles.splice(i, 1);
+              } else {
+                endGame();
+                return; // Exit collision check immediately after game over
+              }
+            }
+          }
+        }
+
+        // --- Powerup Collision ---
+        // Using a for loop to allow modifying array
+        for (let i = gameState.powerups.length - 1; i >= 0; i--) {
+          const powerup = gameState.powerups[i];
+          if (
+            powerup.position.z < PLAYER_RADIUS + POWERUP_RADIUS &&
+            powerup.position.z > -(PLAYER_RADIUS + POWERUP_RADIUS)
+          ) {
+            const distance = playerPos.distanceTo(powerup.position);
+            if (distance < PLAYER_RADIUS + POWERUP_RADIUS) {
+              activatePowerup(powerup.type);
+              if (powerup.mesh) powerupsGroup.remove(powerup.mesh);
+              gameState.powerups.splice(i, 1);
+              if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+            }
+          }
+        }
+      }
+
+      function gameLogicUpdate(delta) {
+        if (gameState.status !== "playing") return;
+
+        updateTimersAndState(); // Manages boost/grace period timers and invincibility flag
+
+        const effectiveSpeed = gameState.currentSpeed * (gameState.speedBoostActive ? SPEED_BOOST_MULTIPLIER : 1);
+
+        gameState.score += effectiveSpeed * delta * 0.1; // Score factor
+        gameState.currentSpeed += GAME_SPEED_INCREMENT * delta;
+        updateScoreDisplay();
+
+        updateAndSpawnObstacles(delta, effectiveSpeed);
+
+        spawnPowerups();
+        updatePowerups(delta, effectiveSpeed);
+
+        checkCollisions();
+
+        // Update other dynamic elements
+        updatePlayer(delta);
+        updateTunnel(delta, effectiveSpeed);
+        updateSpeedLines(delta, effectiveSpeed);
+        updateStars(delta, effectiveSpeed);
+      }
+
+      // --- UI Handling ---
+      function updateScoreDisplay() {
+        scoreDisplay.textContent = Math.floor(gameState.score);
+      }
+
+      function updateUI() {
+        startScreen.style.display = gameState.status === "ready" ? "flex" : "none";
+        endScreen.style.display = gameState.status === "ended" ? "flex" : "none";
+        updateScoreDisplay();
+      }
+
+      // --- Input Handling ---
+      function setupInputHandlers() {
+        window.addEventListener("keydown", (e) => {
+          if (e.key === "ArrowLeft") gameState.keys.left = true;
+          if (e.key === "ArrowRight") gameState.keys.right = true;
+          if (e.key === "ArrowUp") gameState.keys.up = true;
+          if (e.key === "ArrowDown") gameState.keys.down = true;
+          if (e.key === " " || e.key === "Enter") {
+            if (gameState.status === "ready" || gameState.status === "ended") startGame();
+          }
+        });
+        window.addEventListener("keyup", (e) => {
+          if (e.key === "ArrowLeft") gameState.keys.left = false;
+          if (e.key === "ArrowRight") gameState.keys.right = false;
+          if (e.key === "ArrowUp") gameState.keys.up = false;
+          if (e.key === "ArrowDown") gameState.keys.down = false;
+        });
+
+        // --- Touch Controls ---
+        const processTouch = (e) => {
+          // This function will be called by touchstart and touchmove
+          if (gameState.status !== "playing") return;
+          e.preventDefault();
+
+          const touch = e.touches[0];
+          const gameAreaRect = gameArea.getBoundingClientRect();
+
+          // Calculate normalized device coordinates (NDC) from -1 to 1
+          const ndcX = ((touch.clientX - gameAreaRect.left) / gameAreaRect.width) * 2 - 1;
+          const ndcY = -((touch.clientY - gameAreaRect.top) / gameAreaRect.height) * 2 + 1;
+
+          // Create a ray from the camera through the touch point
+          const raycaster = new THREE.Raycaster();
+          raycaster.setFromCamera({ x: ndcX, y: ndcY }, camera);
+
+          // Define the plane the player moves on (the XY plane at Z=0)
+          const playerPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+          const intersectionPoint = new THREE.Vector3();
+
+          // Find where the ray intersects the plane
+          if (raycaster.ray.intersectPlane(playerPlane, intersectionPoint)) {
+            // Set the touch target to this point
+            if (!gameState.touchTarget) {
+              gameState.touchTarget = new THREE.Vector2();
+            }
+            // We only care about X and Y for the 2D plane movement
+            gameState.touchTarget.set(intersectionPoint.x, intersectionPoint.y);
+          }
+        };
+
+        gameArea.addEventListener(
+          "touchstart",
+          (e) => {
+            if (gameState.status === "ready") {
+              startGame();
+            }
+            // Fall through to process the touch for movement immediately
+            processTouch(e);
+          },
+          { passive: false },
+        );
+
+        gameArea.addEventListener("touchmove", processTouch, { passive: false });
+
+        const endTouch = () => {
+          // Stop following the touch point when the finger is lifted
+          gameState.touchTarget = null;
+        };
+
+        gameArea.addEventListener("touchend", endTouch);
+        gameArea.addEventListener("touchcancel", endTouch);
+      }
+
+      // --- Farcade SDK Integration ---
+      function setupFarcadeSDK() {
+        // window.FarcadeSDK.singlePlayer.actions.ready(); // Called in startGame
+        // window.FarcadeSDK.singlePlayer.actions.gameOver({ score: scoreValue }); // Called in endGame
+        // window.FarcadeSDK.singlePlayer.actions.hapticFeedback(); // Called on game start/over
+
+        window.FarcadeSDK.on("play_again", () => {
+          if (gameState.status === "ended" || gameState.status === "ready") {
+            // Allow restart from ready too
+            startGame(); // This calls resetGame
+          }
+        });
+
+        window.FarcadeSDK.on("toggle_mute", (data) => {
+          gameState.isMuted = data.isMuted;
+          if (backgroundMusic) {
+            if (gameState.isMuted) {
+              backgroundMusic.pause();
+            } else {
+              // Only play if game is currently in 'playing' state
+              if (gameState.status === "playing") {
+                backgroundMusic.play().catch((e) => console.warn("Audio play on unmute failed:", e));
+              }
+            }
+          }
+          console.log("Mute toggled via Farcade SDK:", gameState.isMuted);
+        });
+      }
+
+      function handleVisibilityChange() {
+        if (document.hidden) {
+          if (gameState.status === "playing") {
+            gameState.status = "paused";
+            if (backgroundMusic) {
+              backgroundMusic.pause();
+            }
+          }
+        } else {
+          if (gameState.status === "paused") {
+            clock.getDelta(); // Reset clock to avoid large delta jump
+            gameState.status = "playing";
+            if (backgroundMusic && !gameState.isMuted) {
+              backgroundMusic.play().catch((e) => console.warn("Audio play on resume failed:", e));
+            }
+          }
+        }
+      }
+
+      // --- Main Game Loop ---
+      function animate() {
+        requestAnimationFrame(animate);
+        const delta = clock.getDelta();
+
+        if (gameState.status === "playing") {
+          gameLogicUpdate(delta);
+        } else {
+          // Keep some animations running even if not playing (e.g., menu background)
+          const menuSpeed = 20; // A slow, constant speed for menus
+          updateTunnel(delta, menuSpeed);
+          updateSpeedLines(delta, menuSpeed);
+          updateStars(delta, menuSpeed);
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      // --- Start ---
+      init();
+    </script>
+  </body>
+</html>
