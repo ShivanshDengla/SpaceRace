@@ -111,10 +111,6 @@
       @media (max-width: 768px) {
         /* Mobile specific styles if needed, though the game is in an emulator frame */
       }
-
-      .emulator-frame {
-        /* Add any specific styles for the emulator frame */
-      }
     </style>
   </head>
   <body>
@@ -561,8 +557,8 @@
         }
         // Touch logic is now reworked for consistency
         else if (gameState.touchTarget) {
-          const xOffset = -1.5; // Drastic horizontal offset to the left
-          const yOffset = 3.5; // Drastic vertical offset to be clearly above the finger
+          const xOffset = 0; // Keep spaceship aligned with finger horizontally
+          const yOffset = 0.5; // Keep spaceship just above the finger for visibility
 
           // Define movement bounds
           const minX = HORIZONTAL_CENTER_OFFSET - HORIZONTAL_BOUNDS;
