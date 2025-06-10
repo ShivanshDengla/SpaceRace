@@ -106,6 +106,57 @@
         box-shadow: 0 0 15px #00fab3;
       }
 
+      .controls-instructions {
+        display: flex;
+        justify-content: space-around;
+        align-items: flex-start; /* So text aligns with icons */
+        width: 100%;
+        max-width: 400px; /* To keep it from stretching too much */
+        margin: 25px auto;
+        gap: 20px;
+      }
+      .control-group {
+        text-align: center;
+        flex: 1;
+      }
+      .control-group p {
+        margin-top: 10px;
+        font-size: 14px;
+        line-height: 1.3;
+        color: #ccc;
+      }
+      .control-icon {
+        height: 70px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 5px;
+      }
+      .keys {
+        display: inline-block;
+        text-align: center;
+      }
+      .key-row {
+        display: flex;
+        justify-content: center;
+      }
+      .key {
+        border: 2px solid #00fab3;
+        color: #00fab3;
+        background-color: rgba(0, 250, 179, 0.1);
+        border-radius: 5px;
+        width: 30px;
+        height: 30px;
+        line-height: 26px; /* Adjust for border */
+        margin: 2px;
+        font-weight: bold;
+        font-size: 18px;
+      }
+      .joypad-icon {
+        font-size: 48px;
+        line-height: 1;
+      }
+
       /* Removed .touch-controls as game handles touch differently */
 
       @media (max-width: 768px) {
@@ -121,7 +172,29 @@
       <div id="startScreen" class="screen">
         <h1>SPACE RACE</h1>
         <p>Avoid the Red Blocks!</p>
-        <p>Use Arrow Keys or Touch to Move</p>
+        <div class="controls-instructions">
+          <div class="control-group">
+            <div class="control-icon">
+              <div class="keys">
+                <div class="key-row">
+                  <div class="key">▲</div>
+                </div>
+                <div class="key-row">
+                  <div class="key">◀</div>
+                  <div class="key">▼</div>
+                  <div class="key">▶</div>
+                </div>
+              </div>
+            </div>
+            <p>Use arrow keys on desktop</p>
+          </div>
+          <div class="control-group">
+            <div class="control-icon">
+              <div class="joypad-icon">🕹️</div>
+            </div>
+            <p>Drag the spaceship on mobile</p>
+          </div>
+        </div>
         <button id="startButton">Start Game</button>
       </div>
       <div id="endScreen" class="screen" style="display: none">
@@ -155,6 +228,7 @@
         starsGroup,
         powerupsGroup; // Added powerupsGroup
       let backgroundMusic; // Added for background music
+      let shieldSound, speedBoostSound, crashSound; // Added for powerup sounds
       const clock = new THREE.Clock();
 
       // --- Constants ---
@@ -265,6 +339,21 @@
         backgroundMusic.loop = true;
         backgroundMusic.volume = 0.4; // Example volume, can be adjusted
 
+        // Sound Effects
+        shieldSound = new Audio(
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/shield-PXMwmSA038b9bTrczkZwICnn2BoUYb.mp3?r8r3",
+        );
+        shieldSound.volume = 0.5;
+        speedBoostSound = new Audio(
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/speed-OptrEkPEFxZ6HX4SoBfrXDiV53tjUH.mp3?9STX",
+        );
+        speedBoostSound.volume = 0.5;
+
+        crashSound = new Audio(
+          "https://lqy3lriiybxcejon.public.blob.vercel-storage.com/ca01f111-e853-4430-a849-456976261582/crash-35XzHQEfSU8KQ6Sud0YPk6kMjcy2ki.mp3?2CdB",
+        );
+        crashSound.volume = 0.5;
+
         // Load high score
         gameState.highScore = parseInt(localStorage.getItem("spaceRaceHighScore") || "0", 10);
 
@@ -357,6 +446,15 @@
         if (gameState.status === "ended") return; // Prevent multiple calls
         gameState.status = "ended";
 
+        // Pause music and play crash sound
+        if (backgroundMusic) {
+          backgroundMusic.pause();
+        }
+        if (crashSound && !gameState.isMuted) {
+          crashSound.currentTime = 0;
+          crashSound.play().catch((e) => console.warn("Crash sound play failed:", e));
+        }
+
         // Update High Score
         if (gameState.score > gameState.highScore) {
           gameState.highScore = Math.floor(gameState.score);
@@ -371,11 +469,6 @@
         window.FarcadeSDK.singlePlayer.actions.gameOver({ score: Math.floor(gameState.score) });
         // Haptic feedback for game over
         if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
-
-        // Pause background music
-        if (backgroundMusic) {
-          backgroundMusic.pause();
-        }
       }
 
       function createObstacleMesh(position) {
@@ -469,8 +562,16 @@
 
       function activatePowerup(type) {
         if (type === "shield") {
+          if (!gameState.isMuted) {
+            shieldSound.currentTime = 0;
+            shieldSound.play().catch((e) => console.warn("Shield sound play failed:", e));
+          }
           activateShield();
         } else if (type === "speed") {
+          if (!gameState.isMuted) {
+            speedBoostSound.currentTime = 0;
+            speedBoostSound.play().catch((e) => console.warn("Speed sound play failed:", e));
+          }
           activateSpeedBoost();
         }
       }
