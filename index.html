@@ -1208,7 +1208,33 @@
       }
 
       // --- Start ---
-      window.addEventListener('load', init);
+      function waitForMiniKitAndInit() {
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds total
+
+        const check = () => {
+          // Note: we check for MiniKit itself, not MiniKit.isInstalled()
+          // because the script might not be loaded at all.
+          if (window.MiniKit) {
+            console.log("MiniKit object found. Initializing game.");
+            init();
+          } else {
+            attempts++;
+            if (attempts < maxAttempts) {
+              // This log will now appear in your Eruda console
+              console.log(`MiniKit not found. Retrying... (Attempt ${attempts})`);
+              setTimeout(check, 100);
+            } else {
+              console.error("MiniKit failed to load after 5 seconds. Running in browser mode.");
+              // Fallback to browser mode if MiniKit never appears
+              init();
+            }
+          }
+        };
+        check();
+      }
+
+      waitForMiniKitAndInit();
     </script>
   </body>
 </html>
