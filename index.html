@@ -1109,7 +1109,7 @@
         }
 
         console.log("MiniKit found, installing.");
-        window.MiniKit.install();
+        window.MiniKit.install('app_c74b905e2787712abf51e9d99e2f64d8');
 
         const authenticate = async () => {
           // Short delay to allow isInstalled() to become true.
@@ -1208,7 +1208,7 @@
       }
 
       // --- Start ---
-      init();
+      window.addEventListener('DOMContentLoaded', init);
     </script>
   </body>
 </html>
