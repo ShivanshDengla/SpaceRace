@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Space Race</title>
-    <script src="https://unpkg.com/@farcade/game-sdk@latest/dist/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@worldcoin/minikit-js@1.6.0/dist/index.global.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
     <style>
       body {
@@ -49,6 +49,7 @@
         text-shadow: 0 0 8px rgba(0, 250, 179, 0.7);
         z-index: 10;
         pointer-events: none; /* Allow clicks to pass through to canvas if needed */
+        display: flex;
       }
 
       .screen {
@@ -167,7 +168,10 @@
   <body>
     <div class="game-container" id="gameArea">
       {/* Added id for touch listeners */}
-      <div id="ui">Score: <span id="scoreDisplay">0</span></div>
+      <div id="ui">
+        <span>Score: <span id="scoreDisplay">0</span></span>
+        <span id="userInfo" style="display: none; margin-left: 20px"> User: <span id="usernameDisplay"></span> </span>
+      </div>
       <canvas id="gameCanvas"></canvas>
       <div id="startScreen" class="screen">
         <h1>SPACE RACE</h1>
@@ -195,6 +199,7 @@
             <p>Drag the spaceship on mobile</p>
           </div>
         </div>
+        <button id="loginButton" style="margin-bottom: 20px">Login with World ID</button>
         <button id="startButton">Start Game</button>
       </div>
       <div id="endScreen" class="screen" style="display: none">
@@ -288,6 +293,7 @@
         speedBoostEndTime: 0,
         gracePeriodEndTime: 0,
         isInvincible: false,
+        username: null,
       };
 
       // --- Initialization ---
@@ -362,7 +368,7 @@
         replayButton.addEventListener("click", startGame);
 
         setupInputHandlers();
-        setupFarcadeSDK();
+        setupMiniKit();
 
         window.addEventListener("visibilitychange", handleVisibilityChange, false);
         window.addEventListener("resize", handleResize, false);
@@ -423,9 +429,9 @@
       function startGame() {
         if (gameState.status === "playing") return;
         resetGame(); // This sets status to 'playing'
-        window.FarcadeSDK.singlePlayer.actions.ready();
+        // window.FarcadeSDK.singlePlayer.actions.ready();
         // Haptic feedback for game start
-        if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+        // if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
 
         // Start background music if not muted
         if (backgroundMusic && !gameState.isMuted) {
@@ -466,9 +472,10 @@
         highScoreDisplay.textContent = gameState.highScore;
         updateUI();
 
-        window.FarcadeSDK.singlePlayer.actions.gameOver({ score: Math.floor(gameState.score) });
+        // window.FarcadeSDK.singlePlayer.actions.gameOver({ score: Math.floor(gameState.score) });
+        // TODO: Implement leaderboard submission. The MiniKit documentation does not provide a direct leaderboard API. A custom backend would be required to store and retrieve scores.
         // Haptic feedback for game over
-        if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
+        // if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
       }
 
       function createObstacleMesh(position) {
@@ -940,13 +947,10 @@
             const distance = playerPos.distanceTo(obstacleData.position);
             if (distance < PLAYER_RADIUS + OBSTACLE_RADIUS) {
               if (gameState.shieldActive) {
-                if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
                 deactivateShield();
                 if (obstacleData.mesh) obstaclesGroup.remove(obstacleData.mesh);
                 gameState.obstacles.splice(i, 1);
               } else if (gameState.isInvincible) {
-                // From speed boost
-                if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
                 if (obstacleData.mesh) obstaclesGroup.remove(obstacleData.mesh);
                 gameState.obstacles.splice(i, 1);
               } else {
@@ -970,7 +974,6 @@
               activatePowerup(powerup.type);
               if (powerup.mesh) powerupsGroup.remove(powerup.mesh);
               gameState.powerups.splice(i, 1);
-              if (!gameState.isMuted) window.FarcadeSDK.singlePlayer.actions.hapticFeedback();
             }
           }
         }
@@ -1086,32 +1089,65 @@
       }
 
       // --- Farcade SDK Integration ---
-      function setupFarcadeSDK() {
-        // window.FarcadeSDK.singlePlayer.actions.ready(); // Called in startGame
-        // window.FarcadeSDK.singlePlayer.actions.gameOver({ score: scoreValue }); // Called in endGame
-        // window.FarcadeSDK.singlePlayer.actions.hapticFeedback(); // Called on game start/over
+      function setupMiniKit() {
+        if (!window.MiniKit) {
+          console.error("MiniKit not found. Make sure the script is loaded.");
+          // Hide login button if MiniKit is not there
+          const loginButton = document.getElementById("loginButton");
+          if (loginButton) loginButton.style.display = "none";
+          return;
+        }
 
-        window.FarcadeSDK.on("play_again", () => {
-          if (gameState.status === "ended" || gameState.status === "ready") {
-            // Allow restart from ready too
-            startGame(); // This calls resetGame
+        console.log("MiniKit found, installing.");
+        window.MiniKit.install();
+
+        const loginButton = document.getElementById("loginButton");
+        loginButton.addEventListener("click", async () => {
+          if (!window.MiniKit.isInstalled()) {
+            console.error("MiniKit is not installed");
+            alert("Please open this game in the World App to use this feature.");
+            return;
           }
-        });
 
-        window.FarcadeSDK.on("toggle_mute", (data) => {
-          gameState.isMuted = data.isMuted;
-          if (backgroundMusic) {
-            if (gameState.isMuted) {
-              backgroundMusic.pause();
-            } else {
-              // Only play if game is currently in 'playing' state
-              if (gameState.status === "playing") {
-                backgroundMusic.play().catch((e) => console.warn("Audio play on unmute failed:", e));
+          // In a real application, the nonce should be generated by a backend server to prevent replay attacks.
+          const nonce = "sk-" + Math.random().toString(36).substring(2);
+
+          try {
+            const { finalPayload } = await window.MiniKit.commandsAsync.walletAuth({ nonce });
+            if (finalPayload.status === "success") {
+              console.log("Wallet auth success:", finalPayload);
+              const username = window.MiniKit.user?.username;
+              const walletAddress = finalPayload.address;
+              let displayName = username;
+              if (!displayName) {
+                displayName = `${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}`;
               }
+              gameState.username = displayName;
+              updateUserInfo(displayName);
+            } else {
+              console.error("Wallet auth failed:", finalPayload);
+              alert(`Could not authenticate. Error: ${finalPayload.error_code}`);
             }
+          } catch (error) {
+            console.error("Error during wallet auth:", error);
+            alert("An error occurred during authentication.");
           }
-          console.log("Mute toggled via Farcade SDK:", gameState.isMuted);
         });
+      }
+
+      function updateUserInfo(username) {
+        const userInfo = document.getElementById("userInfo");
+        const usernameDisplay = document.getElementById("usernameDisplay");
+        const loginButton = document.getElementById("loginButton");
+
+        if (username) {
+          usernameDisplay.textContent = username;
+          userInfo.style.display = "inline"; // Use inline instead of block
+          loginButton.style.display = "none";
+        } else {
+          userInfo.style.display = "none";
+          loginButton.style.display = "block";
+        }
       }
 
       function handleVisibilityChange() {
